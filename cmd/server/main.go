@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/fusion-platform/fusion-ext-system-bff/internal/api"
+	"github.com/fusion-platform/fusion-ext-system-bff/internal/api/middleware"
 	"github.com/fusion-platform/fusion-ext-system-bff/internal/apikey"
 	"github.com/fusion-platform/fusion-ext-system-bff/internal/auth"
 	"github.com/fusion-platform/fusion-ext-system-bff/internal/config"
@@ -87,14 +88,15 @@ func main() {
 		log.Fatalf("index proxy: %v", err)
 	}
 
-	// Public proxy for /api/public/index — no auth, type=streamlit forced upstream.
+	// Public proxy for /api/public/index — no auth, type forced upstream for listings.
 	publicIndexProxy, err := proxy.NewUpstreamProxy(cfg.IndexURL, "/api/public/index",
-		proxy.WithForcedQuery(url.Values{"type": {"streamlit"}}))
+		proxy.WithForcedQuery(url.Values{"type": {cfg.PublicType}}))
 	if err != nil {
 		log.Fatalf("public index proxy: %v", err)
 	}
 
-	router := api.NewRouter(chain, rbacEngine, indexProxy, publicIndexProxy)
+	tagGate := middleware.TagGate(cfg.IndexURL, cfg.PublicDownloadTag)
+	router := api.NewRouter(chain, rbacEngine, indexProxy, publicIndexProxy, tagGate)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.HTTPPort,

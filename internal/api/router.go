@@ -10,7 +10,7 @@ import (
 	"github.com/fusion-platform/fusion-ext-system-bff/internal/rbac"
 )
 
-func NewRouter(chain *auth.Chain, engine *rbac.Engine, index *proxy.UpstreamProxy, publicIndex *proxy.UpstreamProxy) *gin.Engine {
+func NewRouter(chain *auth.Chain, engine *rbac.Engine, index *proxy.UpstreamProxy, publicIndex *proxy.UpstreamProxy, tagGate gin.HandlerFunc) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(gin.Logger())
@@ -21,8 +21,10 @@ func NewRouter(chain *auth.Chain, engine *rbac.Engine, index *proxy.UpstreamProx
 	r.GET("/readyz", handler.Readyz)
 
 	// Public read-only endpoint — no authentication.
-	// The proxy forces type=streamlit upstream so clients cannot read other artifact types.
+	// The proxy forces ?type=<PUBLIC_TYPE> upstream for listing; tagGate enforces
+	// a required version tag before proxying version-scoped download requests.
 	pub := r.Group("/api/public")
+	pub.Use(tagGate)
 	pub.GET("/index/*path", publicIndex.Handler())
 
 	// Authenticated routes — auth + RBAC enforced for all /api/index/* traffic.

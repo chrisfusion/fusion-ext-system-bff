@@ -27,6 +27,10 @@ type Config struct {
 	// open mode
 	OpenSystemID string // OPEN_SYSTEM_ID, default "anonymous"
 
+	// public endpoint
+	PublicType        string // PUBLIC_TYPE, default "streamlit"
+	PublicDownloadTag string // PUBLIC_DOWNLOAD_TAG, optional — required tag on a version for public download
+
 	// DB (required when apikey source is "db")
 	DBDSN string
 
@@ -47,6 +51,8 @@ func Load() (*Config, error) {
 		APIKeySource:     envOrDefault("APIKEY_SOURCE", "env"),
 		APIKeyHashedKeys: os.Getenv("APIKEY_HASHED_KEYS"),
 		OpenSystemID:     envOrDefault("OPEN_SYSTEM_ID", "anonymous"),
+		PublicType:        envOrDefault("PUBLIC_TYPE", "streamlit"),
+		PublicDownloadTag: os.Getenv("PUBLIC_DOWNLOAD_TAG"),
 		DBDSN:            os.Getenv("DB_DSN"),
 		IndexURL:         envOrDefault("INDEX_URL", "http://fusion-index-backend.fusion.svc.cluster.local:8080"),
 		RBACConfigPath:   envOrDefault("RBAC_CONFIG_PATH", "./rbac.yaml"),

@@ -12,27 +12,28 @@ External system
       │  POST /api/index/...               X-Api-Key: <key>
       │  DELETE /api/index/...             X-Api-Key: <key>
       ▼
-┌─────────────────────────────────────────────────────┐
-│                fusion-ext-system-bff                │
-│                                                     │
-│  ┌──────────┐   ┌────────────────────────────────┐  │
-│  │ /health  │   │ /api/public/index/*            │  │
-│  │ /livez   │   │  no auth — type=streamlit      │  │
-│  │ /readyz  │   │  forced upstream               │  │
-│  └──────────┘   └───────────��───┬────────────────┘  │
-│                                 │                   │
-│                 ┌───────────────▼────────────────┐  │
-│                 │ /api/index/*                   │  │
-│                 │  1. strip inbound identity hdrs │  │
-│                 │  2. authenticate (auth chain)   │  │
-│                 │  3. RBAC permission check       │  │
-│                 │  4. inject X-System-ID/Name     │  │
-│                 └───────────────┬────────────────┘  │
-└─────────────────────────────────┼───────────────────┘
-                                  │
-                                  ▼
-                        fusion-index-backend
-                        (Kubernetes ClusterIP)
+┌──────────────────────────────────────────────────────────┐
+│                 fusion-ext-system-bff                    │
+│                                                          │
+│  ┌──────────┐   ┌─────────────────────────────────────┐  │
+│  │ /health  │   │ /api/public/index/*                 │  │
+│  │ /livez   │   │  no auth                            │  │
+│  │ /readyz  │   │  ?type=<PUBLIC_TYPE> forced         │  │
+│  └──────────┘   │  TagGate: pre-flight version check  │  │
+│                 └──────────────────┬────────────────── ┘  │
+│                                    │                      │
+│                 ┌──────────────────▼──────────────────┐   │
+│                 │ /api/index/*                        │   │
+│                 │  1. strip inbound identity hdrs     │   │
+│                 │  2. authenticate (auth chain)       │   │
+│                 │  3. RBAC permission check           │   │
+│                 │  4. inject X-System-ID/Name         │   │
+│                 └──────────────────┬────────────────── ┘  │
+└────────────────────────────────────┼─────────────────────┘
+                                     │
+                                     ▼
+                           fusion-index-backend
+                           (Kubernetes ClusterIP)
 ```
 
 ## Request flow — authenticated route
@@ -55,16 +56,30 @@ External system
 
 3. UpstreamProxy.Rewrite
    ├─ strip /api/index prefix from path
-   ├─ apply forced query params (public route only)
    ├─ del X-System-ID, X-System-Name from outbound headers
    └─ set X-System-ID, X-System-Name from context
 ```
 
-## Public route
+## Request flow — public route
 
-`GET /api/public/index/*path` is registered outside the `SystemAuth` middleware group. No credential is needed. The proxy rewrites the upstream query to always include `type=streamlit`, overriding any client-supplied value — it is structurally impossible to use this endpoint to read non-Streamlit artifacts.
+```
+1. RequestID middleware
 
-Identity headers are still stripped in the proxy Rewrite, preventing callers from injecting `X-System-ID` / `X-System-Name` to impersonate an authenticated identity.
+2. TagGate middleware  (only when PUBLIC_DOWNLOAD_TAG is set)
+   ├─ path matches /api/public/index/api/v1/artifacts/{id}/versions/{semver}/...?
+   │    no  → pass through
+   │    yes → pre-flight GET {INDEX_URL}/api/v1/artifacts/{id}/versions/{semver}
+   │             version.tags contains PUBLIC_DOWNLOAD_TAG? → pass through
+   │             missing tag                                 → 403
+   │             version not found                          → 404
+   │             upstream error                             → 502/503
+
+3. UpstreamProxy.Rewrite
+   ├─ strip /api/public/index prefix from path
+   ├─ force ?type=<PUBLIC_TYPE> into query string (overrides client value)
+   ├─ del X-System-ID, X-System-Name from outbound headers (never set for public)
+   └─ no identity headers forwarded upstream
+```
 
 ## Auth chain
 
@@ -106,6 +121,19 @@ system identity (sub, api key system_id, or "anonymous")
 
 `rbac.yaml` is loaded once at startup from `RBAC_CONFIG_PATH`. In Kubernetes it is mounted from a ConfigMap — update the ConfigMap and restart the pod to pick up changes. `deployment/rbac.yaml` is the Helm chart copy and must be kept in sync with the root `rbac.yaml`.
 
+## Public route restrictions
+
+The public endpoint has two independent layers of restriction:
+
+| Layer | Mechanism | Scope |
+|-------|-----------|-------|
+| Type filter | `?type=<PUBLIC_TYPE>` forced in proxy Rewrite — client value overridden | Artifact listing; controls which artifact types appear |
+| Tag gate | Pre-flight GET to fusion-index version endpoint; checks `VersionResponse.Tags` | Any path scoped to a version (`/artifacts/{id}/versions/{semver}/...`) |
+
+The type filter operates at the query-string level and is enforced by fusion-index when it processes the upstream request. The tag gate operates at the BFF level before the request is forwarded — it is enforced regardless of what fusion-index does.
+
+Both layers are independently configurable and can be combined or used separately.
+
 ## API key storage
 
 Two backends, selected by `APIKEY_SOURCE`:
@@ -143,12 +171,14 @@ After successful auth and RBAC the proxy injects two headers into the upstream r
 
 These are stripped from the inbound request before auth (middleware) and stripped again from the outbound request before being re-set from context (proxy Rewrite). The double-strip pattern means a client can never supply these headers, even if they slip through the first layer.
 
+Public requests never set these headers — identity headers are stripped and not forwarded upstream.
+
 ## Proxy path rewriting
 
 | Client path | Strip prefix | Upstream path |
 |-------------|-------------|---------------|
 | `/api/index/api/v1/artifacts` | `/api/index` | `/api/v1/artifacts` |
-| `/api/public/index/api/v1/artifacts` | `/api/public/index` | `/api/v1/artifacts?type=streamlit` |
+| `/api/public/index/api/v1/artifacts` | `/api/public/index` | `/api/v1/artifacts?type=<PUBLIC_TYPE>` |
 
 `httputil.ReverseProxy` is used with a `Rewrite` func (not `Director`). CORS headers are stripped from upstream responses — CORS policy is owned by the ingress or the consumer, not the upstream backend.
 
@@ -157,7 +187,8 @@ These are stripped from the inbound request before auth (middleware) and strippe
 | Property | Mechanism |
 |----------|-----------|
 | Identity spoofing | Headers stripped pre-auth and pre-forward (two layers) |
-| Public endpoint scope | `type=streamlit` forced in proxy Rewrite, client value overridden |
+| Public endpoint type scope | `?type=<PUBLIC_TYPE>` forced in proxy Rewrite, client value overridden |
+| Public endpoint version access | TagGate pre-flights fusion-index before proxying version-scoped requests |
 | Open mode in production | Config validation rejects `open` combined with any other mode at startup |
 | Misconfigured key store | Startup validation: 64-char hex required per entry; empty env store rejected |
 | Credential vs infra errors | `ErrNotFound` → 401 with hash prefix logged; infra error → 401 with wrapped error logged |

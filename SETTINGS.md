@@ -112,36 +112,55 @@ No credential is required. Every request is authenticated as the configured syst
 
 ## Public API
 
-The public API is available at `/api/public/index/*` with **no authentication required**. It is intended for Streamlit apps and other consumers that need read access to published Streamlit artifacts without managing credentials.
+The public API is available at `/api/public/index/*` with **no authentication required**. It is read-only — POST, PUT, and DELETE return `404`.
 
-### How it works
+Two settings control what is accessible via the public endpoint:
 
-The BFF forces `?type=streamlit` into every upstream request, overriding any value the client supplies. It is structurally impossible to use this endpoint to read artifacts of any other type.
+### Type filter
 
-Identity headers (`X-System-ID`, `X-System-Name`) are stripped from inbound requests and are never forwarded upstream — public requests are anonymous to the backend.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PUBLIC_TYPE` | `streamlit` | Artifact type name forced as `?type=` on every upstream request |
+
+The BFF overwrites any `?type=` value supplied by the client. It is structurally impossible to use this endpoint to list artifacts of a different type. Change this setting to expose a different artifact type publicly.
+
+### Tag gate
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PUBLIC_DOWNLOAD_TAG` | — | Tag name that must be present on a version for version-scoped requests to be allowed. If unset, no tag check is performed. |
+
+When `PUBLIC_DOWNLOAD_TAG` is set, any request to a path that includes `/artifacts/{id}/versions/{semver}/` triggers a pre-flight `GET` to fusion-index. The BFF fetches the version's metadata and checks whether its `tags` array contains an entry matching the configured value. If the tag is absent the request is rejected with `403`.
+
+This gate applies to all version-scoped public paths: version detail, file listing, file metadata, and file download. Artifact listing and artifact detail requests are not gated — only the type filter applies to those.
+
+**Example — expose only artifacts tagged `public`:**
+```
+PUBLIC_TYPE=streamlit
+PUBLIC_DOWNLOAD_TAG=public
+```
+
+Consumers can then assign the `public` tag to a specific version in fusion-index:
+```bash
+curl -X PUT https://ext-bff.example.com/api/index/api/v1/artifacts/42/tags/public \
+  -H "X-Api-Key: <key>" \
+  -H "Content-Type: application/json" \
+  -d '{"version":"1.2.3"}'
+```
+
+That version is now accessible via the public endpoint. Moving the tag to another version immediately revokes access to the previous one.
 
 ### Endpoints
 
-| Method | Path | Description |
+| Method | Path | Restriction |
 |--------|------|-------------|
-| `GET` | `/api/public/index/api/v1/artifacts` | List Streamlit artifacts |
-| `GET` | `/api/public/index/api/v1/artifacts/{id}` | Get a Streamlit artifact |
-| `GET` | `/api/public/index/api/v1/artifacts/{id}/versions` | List versions |
-| `GET` | `/api/public/index/api/v1/artifacts/{id}/versions/{v}/files` | List files in a version |
-| `GET` | `/api/public/index/api/v1/artifacts/{id}/versions/{v}/files/{name}` | Download a file |
-
-POST, PUT, and DELETE are not registered on `/api/public/*` — they return 404.
-
-### Example
-
-```bash
-# List all Streamlit artifacts — no credential needed
-curl https://ext-bff.example.com/api/public/index/api/v1/artifacts
-
-# ?type= is always overridden to streamlit even if supplied
-curl "https://ext-bff.example.com/api/public/index/api/v1/artifacts?type=maven"
-# → returns only streamlit artifacts
-```
+| `GET` | `/api/public/index/api/v1/artifacts` | Type filter only |
+| `GET` | `/api/public/index/api/v1/artifacts/{id}` | Type filter only |
+| `GET` | `/api/public/index/api/v1/artifacts/{id}/versions` | Type filter + tag gate |
+| `GET` | `/api/public/index/api/v1/artifacts/{id}/versions/{semver}` | Type filter + tag gate |
+| `GET` | `/api/public/index/api/v1/artifacts/{id}/versions/{semver}/files` | Type filter + tag gate |
+| `GET` | `/api/public/index/api/v1/artifacts/{id}/versions/{semver}/files/{fileId}` | Type filter + tag gate |
+| `GET` | `/api/public/index/api/v1/artifacts/{id}/versions/{semver}/files/{fileId}/download` | Type filter + tag gate |
 
 ---
 
@@ -151,7 +170,7 @@ curl "https://ext-bff.example.com/api/public/index/api/v1/artifacts?type=maven"
 |----------|---------|-------------|
 | `INDEX_URL` | `http://fusion-index-backend.fusion.svc.cluster.local:8080` | Base URL for the fusion-index backend |
 
-All `/api/index/*` and `/api/public/index/*` traffic is forwarded to this URL. The `/api/index` and `/api/public/index` path prefixes are stripped before forwarding.
+All `/api/index/*` and `/api/public/index/*` traffic is forwarded to this URL. The `/api/index` and `/api/public/index` path prefixes are stripped before forwarding. The tag gate pre-flight requests also target this URL.
 
 ---
 
@@ -218,6 +237,15 @@ helm install fusion-ext-system-bff deployment/ \
   --set config.authModes=oauth2 \
   --set config.oidcIssuerUrl=https://keycloak.example.com/realms/fusion \
   --set config.oidcClientId=fusion-ext
+
+# Production — with tag-gated public downloads
+helm install fusion-ext-system-bff deployment/ \
+  --namespace fusion \
+  --set config.authModes=apikey \
+  --set config.apikeySource=db \
+  --set config.publicType=streamlit \
+  --set config.publicDownloadTag=public \
+  --set secret.dbDsn="postgres://user:pass@host:5432/db"
 
 # Local dev — open mode
 helm install fusion-ext-system-bff deployment/ \
