@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "fusion-ext-system-bff.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "fusion-ext-system-bff.labels" . | nindent 4 }}
+data:
+  HTTP_PORT: {{ .Values.config.httpPort | quote }}
+  AUTH_MODES: {{ required "config.authModes is required" .Values.config.authModes | quote }}
+  INDEX_URL: {{ .Values.config.indexUrl | quote }}
+  RBAC_CONFIG_PATH: {{ .Values.config.rbacConfigPath | quote }}
+  APIKEY_HEADER: {{ .Values.config.apikeyHeader | quote }}
+  APIKEY_SOURCE: {{ .Values.config.apikeySource | quote }}
+  OPEN_SYSTEM_ID: {{ .Values.config.openSystemId | quote }}
+  OIDC_JWKS_CACHE_TTL: {{ .Values.config.oidcJwksCacheTtl | quote }}
+  {{- if contains "oauth2" .Values.config.authModes }}
+  OIDC_ISSUER_URL: {{ required "config.oidcIssuerUrl is required when authModes contains oauth2" .Values.config.oidcIssuerUrl | quote }}
+  OIDC_CLIENT_ID: {{ required "config.oidcClientId is required when authModes contains oauth2" .Values.config.oidcClientId | quote }}
+  {{- if .Values.config.oidcJwksUrl }}
+  OIDC_JWKS_URL: {{ .Values.config.oidcJwksUrl | quote }}
+  {{- end }}
+  {{- end }}

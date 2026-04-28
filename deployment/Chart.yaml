@@ -1,0 +1,6 @@
+apiVersion: v2
+name: fusion-ext-system-bff
+description: Backend for Frontend for external system integrations with the fusion platform
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

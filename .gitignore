@@ -1,0 +1,20 @@
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Editor
+.emacs.d/
+*~
+\#*\#
+.#*
+*.swp
+*.swo
+
+# Build artifacts
+bin/
+*.exe
+
+# Environment
+.env
+*.env

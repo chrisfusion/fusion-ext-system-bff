@@ -1,0 +1,35 @@
+# system_roles maps a system identity (JWT "sub" claim or API key system_id) to roles.
+# Systems with no entry here pass authentication but are denied on any permission-guarded route.
+#
+# Public streamlit route (/api/public/index/*) bypasses auth entirely — no entry needed here.
+# The BFF forces type=streamlit upstream so only streamlit artifacts are served publicly.
+
+system_roles:
+  ci-pipeline: [writer]
+  data-reader:  [reader]
+  admin-tool:   [admin]
+
+role_permissions:
+  reader:
+    - index:artifacts:read
+  writer:
+    - index:artifacts:read
+    - index:artifacts:write
+  admin:
+    - index:artifacts:read
+    - index:artifacts:write
+    - index:artifacts:delete
+
+# First matching rule wins. * matches one path segment; trailing * matches one or more.
+# /api/public/* routes are not listed here — they are handled before auth, outside this engine.
+route_permissions:
+  # Hard-delete routes — admin only
+  - { method: DELETE, path: /api/index/api/v1/artifacts/*/versions/*/files/*, permission: index:artifacts:delete }
+  - { method: DELETE, path: /api/index/api/v1/artifacts/*/versions/*,         permission: index:artifacts:delete }
+  - { method: DELETE, path: /api/index/api/v1/artifacts/*,                    permission: index:artifacts:delete }
+  # Write routes — writer + admin
+  - { method: POST,   path: /api/index/api/v1/artifacts/*/versions/*/files,   permission: index:artifacts:write }
+  - { method: POST,   path: /api/index/api/v1/artifacts/*/versions,            permission: index:artifacts:write }
+  - { method: POST,   path: /api/index/api/v1/artifacts,                       permission: index:artifacts:write }
+  # Read routes — all authenticated identities with reader role or above
+  - { method: GET,    path: /api/index/*,                                       permission: index:artifacts:read }

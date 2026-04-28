@@ -1,0 +1,10 @@
+fusion-ext-system-bff {{ .Chart.AppVersion }} deployed.
+
+Service:  {{ include "fusion-ext-system-bff.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+Auth:     {{ .Values.config.authModes }}
+
+Health:   http://<cluster-ip>:{{ .Values.service.port }}/health
+Readyz:   http://<cluster-ip>:{{ .Values.service.port }}/readyz
+
+API proxy routes:
+  /api/index/* → {{ .Values.config.indexUrl }}

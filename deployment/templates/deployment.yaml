@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "fusion-ext-system-bff.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "fusion-ext-system-bff.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "fusion-ext-system-bff.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "fusion-ext-system-bff.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "fusion-ext-system-bff.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: rbac-config
+          configMap:
+            name: {{ include "fusion-ext-system-bff.fullname" . }}-rbac
+      containers:
+        - name: fusion-ext-system-bff
+          image: {{ include "fusion-ext-system-bff.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "fusion-ext-system-bff.fullname" . }}
+          {{- if and .Values.secret.create (or .Values.secret.apikeyHashedKeys .Values.secret.dbDsn) }}
+          env:
+            {{- if .Values.secret.apikeyHashedKeys }}
+            - name: APIKEY_HASHED_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "fusion-ext-system-bff.fullname" . }}
+                  key: APIKEY_HASHED_KEYS
+            {{- end }}
+            {{- if .Values.secret.dbDsn }}
+            - name: DB_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "fusion-ext-system-bff.fullname" . }}
+                  key: DB_DSN
+            {{- end }}
+          {{- end }}
+          volumeMounts:
+            - name: rbac-config
+              mountPath: /etc/fusion-ext-system-bff
+              readOnly: true
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

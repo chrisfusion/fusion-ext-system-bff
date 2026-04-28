@@ -1,0 +1,116 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/fusion-platform/fusion-ext-system-bff
+  tag: ""  # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+  tls: []
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 70
+
+livenessProbe:
+  httpGet:
+    path: /livez
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+
+secret:
+  # Set create: false to manage the Secret outside Helm (e.g. Sealed Secrets / ESO).
+  # When create: false, provide a Secret with the same name as the release containing
+  # APIKEY_HASHED_KEYS and/or DB_DSN as needed.
+  create: true
+  # Used when config.apikeySource is "env" (dev/simple deploys only).
+  # Comma-separated sha256hex:system-id:system-name entries.
+  # NOT suitable for production — key rotation requires a redeployment.
+  apikeyHashedKeys: ""
+  # Required when config.apikeySource is "db" (production default).
+  # e.g. postgres://user:password@host:5432/dbname
+  dbDsn: ""
+
+config:
+  httpPort: "8080"
+
+  # AUTH_MODES — comma-separated ordered list of enabled authenticators.
+  # Valid values: oauth2, apikey, open
+  # "open" cannot be combined with other modes (startup will reject it).
+  authModes: "apikey"
+
+  # oauth2 mode — required when authModes contains "oauth2"
+  oidcIssuerUrl: ""    # e.g. https://keycloak.example.com/realms/fusion
+  oidcClientId: ""     # expected aud claim
+  oidcJwksUrl: ""      # optional — defaults to {oidcIssuerUrl}/protocol/openid-connect/certs
+  oidcJwksCacheTtl: "15m"
+
+  # apikey mode
+  apikeyHeader: "X-Api-Key"
+  # Use "db" in production — keys can be added/revoked without redeployment.
+  # To add a key:    INSERT INTO system_api_keys (system_id, system_name, hashed_key) VALUES (...)
+  # To revoke a key: UPDATE system_api_keys SET active = FALSE WHERE hashed_key = '...'
+  # Hash a raw key:  printf '%s' 'rawkey' | sha256sum | cut -d' ' -f1
+  apikeySource: "db"
+
+  # open mode — identity assigned to all requests (dev/internal only)
+  openSystemId: "anonymous"
+
+  # upstream proxy
+  indexUrl: "http://fusion-index-backend.fusion.svc.cluster.local:8080"
+
+  # rbac
+  rbacConfigPath: "/etc/fusion-ext-system-bff/rbac.yaml"
