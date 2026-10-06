@@ -186,3 +186,7 @@ flux/                         # Flux GitOps (3 environments)
 Dockerfile
 Makefile
 ```
+
+## Multi-tenancy / ownership
+
+Cross-project plan (owner groups, trusted headers `X-User-Groups` etc., migration, rollout): `../fusion-shared/docs/multi-tenancy.md` — read it before touching ownership, groups or the `X-User-*` headers.
