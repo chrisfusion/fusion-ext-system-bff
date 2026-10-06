@@ -21,6 +21,10 @@ Unlike `fusion-bff` (which handles human PKCE/session flows), this service handl
 - **OAuth2 token introspection / JWKS validation** — `github.com/coreos/go-oidc/v3` (reused from fusion-bff pattern)
 - **License**: GPL-3.0
 
+## Vendoring (offline builds)
+
+Go dependencies are vendored and committed (`vendor/`, ~44 MB on disk) because the CI environment that builds the images has no internet access (builds must not download anything). The Makefile targets and the Dockerfile use `-mod=vendor` (the Dockerfile has no `go mod download`). After any `go.mod` change run `make vendor` and commit `vendor/` with `go.mod`/`go.sum`; `make check-vendor` fails on drift. `vendor/**` is `-diff linguist-vendored` in `.gitattributes`. Remaining external inputs: the Docker base images (`golang:1.25-alpine`, `gcr.io/distroless/static-debian12:nonroot`) — mirror them in an internal registry or `docker save`/`docker load` them. Outside Docker the pinned Go toolchain must be installed (`GOTOOLCHAIN=local`). Verify with `docker build --network none .`. Blueprint: `docs/go-vendoring-blueprint.md`.
+
 ## Platform context
 
 | Service | Internal URL | Purpose |

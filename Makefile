@@ -1,13 +1,13 @@
 IMG     ?= fusion-ext-system-bff:latest
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: build test lint lint-fix docker-build run tidy vet fmt clean help
+.PHONY: build test lint lint-fix docker-build run tidy vendor check-vendor vet fmt clean help
 
 build: ## Build the binary
-	CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o bin/fusion-ext-system-bff ./cmd/server
+	CGO_ENABLED=0 go build -mod=vendor -ldflags="-s -w" -trimpath -o bin/fusion-ext-system-bff ./cmd/server
 
 test: ## Run unit tests
-	go test ./... -v -count=1 -race
+	go test -mod=vendor ./... -v -count=1 -race
 
 lint: ## Run golangci-lint
 	golangci-lint run ./...
@@ -19,13 +19,22 @@ docker-build: ## Build Docker image (IMG=fusion-ext-system-bff:local)
 	docker build --build-arg VERSION=$(VERSION) -t $(IMG) .
 
 run: ## Run locally (reads .env if present)
-	@set -a; [ -f .env ] && . ./.env; set +a; go run ./cmd/server
+	@set -a; [ -f .env ] && . ./.env; set +a; go run -mod=vendor ./cmd/server
 
 tidy: ## Tidy go.mod
 	go mod tidy
 
-vet: ## Run go vet
-	go vet ./...
+vendor: ## Refresh vendor/ from go.mod (committed so builds work offline)
+	go mod tidy
+	go mod vendor
+
+check-vendor: ## Fail when vendor/ drifted from go.mod/go.sum
+	go mod vendor
+	git diff --exit-code -- vendor go.mod go.sum
+	@test -z "$$(git ls-files --others --exclude-standard -- vendor)" || (echo "untracked files in vendor/" && exit 1)
+
+vet: ## Run go vet -mod=vendor
+	go vet -mod=vendor ./...
 
 fmt: ## Format source
 	gofmt -w .
